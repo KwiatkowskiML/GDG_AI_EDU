@@ -1,6 +1,10 @@
 from fastapi import FastAPI
 from app.routes.flashcards import router as flashcards_router
 from app.routes.stream import router as stream_router
+from dotenv import load_dotenv
+
+load_dotenv()
+
 app = FastAPI(
     title="Main service",
     description="All of the routes are in this service",
