@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Echo Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        label { display: block; margin-top: 10px; }
+        input[type="text"] { width: calc(100% - 22px); padding: 10px; margin-top: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        .endpoint-group { margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e9ecef; }
+        button { padding: 10px 15px; margin-top: 15px; margin-right: 10px; border: none; border-radius: 4px; cursor: pointer; }
+        .connect-btn { background-color: #28a745; color: white; }
+        .disconnect-btn { background-color: #dc3545; color: white; }
+        .record-btn { background-color: #007bff; color: white; }
+        .stop-record-btn { background-color: #ffc107; color: black; }
+        #status { margin-top: 20px; padding: 10px; border: 1px solid #eee; border-radius: 4px; background-color: #e9ecef; }
+        #messages { margin-top: 20px; padding: 10px; border: 1px solid #eee; border-radius: 4px; background-color: #f8f9fa; max-height: 200px; overflow-y: auto; }
+        audio { margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket Echo Test</h1>
+
+        <div class="endpoint-group">
+            <label for="serverUrl">Server URL:</label>
+            <input type="text" id="serverUrl" value="localhost:8000" placeholder="e.g., localhost:8000">
+
+            <label for="endpointPath">Endpoint Path:</label>
+            <input type="text" id="endpointPath" value="/test/echo/" placeholder="e.g., /test/echo/">
+
+            <label for="sessionId">Session ID:</label>
+            <input type="text" id="sessionId" value="echo_test_001" placeholder="e.g., echo_test_001">
+
+            <div id="fullEndpoint" style="margin-top: 10px; font-size: 0.9em; color: #666;">
+                Connection will use: ws://localhost:8000/test/echo/echo_test_001
+            </div>
+        </div>
+
+        <button id="connectButton" class="connect-btn">Connect</button>
+        <button id="disconnectButton" class="disconnect-btn" disabled>Disconnect</button>
+        <br>
+        <button id="startRecordButton" class="record-btn" disabled>Start Recording & Sending</button>
+        <button id="stopRecordButton" class="stop-record-btn" disabled>Stop Recording</button>
+
+        <div id="status">Not connected.</div>
+        <h2>Received Echoed Audio:</h2>
+        <div id="messages"></div>
+        <audio id="audioPlayback" controls style="display:none;"></audio>
+    </div>
+
+    <script>
+        const serverUrlInput = document.getElementById('serverUrl');
+        const endpointPathInput = document.getElementById('endpointPath');
+        const sessionIdInput = document.getElementById('sessionId');
+        const fullEndpointDiv = document.getElementById('fullEndpoint');
+        const connectButton = document.getElementById('connectButton');
+        const disconnectButton = document.getElementById('disconnectButton');
+        const startRecordButton = document.getElementById('startRecordButton');
+        const stopRecordButton = document.getElementById('stopRecordButton');
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        const audioPlayback = document.getElementById('audioPlayback');
+
+        let websocket = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        const TIMESLICE_MS = 100; // Increased from 30ms to 100ms for better chunks
+
+        // Update the full endpoint display whenever inputs change
+        function updateFullEndpoint() {
+            const server = serverUrlInput.value.trim();
+            const path = endpointPathInput.value.trim();
+            const session = sessionIdInput.value.trim();
+
+            // Make sure path starts with / and doesn't end with / if session is provided
+            const formattedPath = path.startsWith('/') ? path : `/${path}`;
+            const formattedPathEnd = formattedPath.endsWith('/') ? formattedPath : `${formattedPath}/`;
+
+            const fullUrl = `ws://${server}${formattedPathEnd}${session}`;
+            fullEndpointDiv.textContent = `Connection will use: ${fullUrl}`;
+        }
+
+        // Add event listeners to update the full endpoint URL
+        serverUrlInput.addEventListener('input', updateFullEndpoint);
+        endpointPathInput.addEventListener('input', updateFullEndpoint);
+        sessionIdInput.addEventListener('input', updateFullEndpoint);
+
+        // Initialize
+        updateFullEndpoint();
+
+        connectButton.onclick = () => {
+            const server = serverUrlInput.value.trim();
+            const path = endpointPathInput.value.trim();
+            const session = sessionIdInput.value.trim();
+
+            if (!server || !path || !session) {
+                alert("Please fill in all connection fields.");
+                return;
+            }
+
+            // Construct the WebSocket URL
+            const formattedPath = path.startsWith('/') ? path : `/${path}`;
+            const formattedPathEnd = formattedPath.endsWith('/') ? formattedPath : `${formattedPath}/`;
+            const wsUrl = `ws://${server}${formattedPathEnd}${session}`;
+
+            statusDiv.textContent = `Connecting to ${wsUrl}...`;
+            websocket = new WebSocket(wsUrl);
+
+            websocket.onopen = () => {
+                statusDiv.textContent = `Connected to ${wsUrl}`;
+                connectButton.disabled = true;
+                disconnectButton.disabled = false;
+                startRecordButton.disabled = false;
+                serverUrlInput.disabled = true;
+                endpointPathInput.disabled = true;
+                sessionIdInput.disabled = true;
+            };
+
+            // For buffering audio chunks before playback
+            let receivedAudioChunks = [];
+            let isPlaying = false;
+            const BUFFER_LENGTH_MS = 500; // Buffer 500ms of audio before playing
+            let bufferTimer = null;
+
+            function playBufferedAudio() {
+                if (receivedAudioChunks.length === 0) return;
+
+                // Create a new Blob from all chunks
+                const audioBlob = new Blob(receivedAudioChunks, { type: 'audio/webm; codecs=opus' });
+                receivedAudioChunks = []; // Clear the buffer
+
+                // Play the audio
+                const audioUrl = URL.createObjectURL(audioBlob);
+                audioPlayback.src = audioUrl;
+                audioPlayback.style.display = 'block';
+
+                audioPlayback.onended = () => {
+                    isPlaying = false;
+                    URL.revokeObjectURL(audioUrl); // Clean up
+
+                    // If we accumulated more chunks while playing, play those too
+                    if (receivedAudioChunks.length > 0) {
+                        playBufferedAudio();
+                    }
+                };
+
+                isPlaying = true;
+                audioPlayback.play().catch(e => {
+                    console.error("Error playing audio:", e);
+                    isPlaying = false;
+                });
+            }
+
+            websocket.onmessage = (event) => {
+                if (event.data instanceof Blob) {
+                    const receivedBytes = event.data.size;
+                    receivedAudioChunks.push(event.data);
+                    logMessage(`Received echoed audio chunk: ${receivedBytes} bytes.`);
+
+                    // Clear any existing timer
+                    if (bufferTimer) {
+                        clearTimeout(bufferTimer);
+                    }
+
+                    // If we're not currently playing and have accumulated enough data, play it
+                    if (!isPlaying) {
+                        bufferTimer = setTimeout(playBufferedAudio, BUFFER_LENGTH_MS);
+                    }
+                } else {
+                    logMessage(`Received text message: ${event.data}`);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error("WebSocket Error:", error);
+                statusDiv.textContent = "WebSocket error. See console for details.";
+                logMessage(`WebSocket Error: ${error.message || 'Unknown error'}`);
+                resetUI();
+            };
+
+            websocket.onclose = (event) => {
+                statusDiv.textContent = `Disconnected. Code: ${event.code}, Reason: ${event.reason || 'N/A'}`;
+                logMessage(`WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'N/A'}`);
+                resetUI();
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+
+                // Clear any buffered audio
+                receivedAudioChunks = [];
+                if (bufferTimer) {
+                    clearTimeout(bufferTimer);
+                    bufferTimer = null;
+                }
+            };
+        };
+
+        disconnectButton.onclick = () => {
+            if (websocket) {
+                websocket.close();
+            }
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+            }
+        };
+
+        startRecordButton.onclick = async () => {
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                alert("getUserMedia not supported on your browser!");
+                return;
+            }
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
+                        websocket.send(event.data);
+                        logMessage(`Sent audio chunk: ${event.data.size} bytes`);
+                    }
+                };
+
+                mediaRecorder.onstart = () => {
+                    logMessage("Recording started...");
+                    startRecordButton.disabled = true;
+                    stopRecordButton.disabled = false;
+                };
+
+                mediaRecorder.onstop = () => {
+                    logMessage("Recording stopped.");
+                    startRecordButton.disabled = false;
+                    stopRecordButton.disabled = true;
+                    stream.getTracks().forEach(track => track.stop()); // Release microphone
+                };
+
+                mediaRecorder.start(TIMESLICE_MS); // Collect 100ms of audio before firing ondataavailable
+
+            } catch (err) {
+                console.error("Error accessing microphone:", err);
+                logMessage(`Error accessing microphone: ${err.message}`);
+                statusDiv.textContent = "Error accessing microphone.";
+            }
+        };
+
+        stopRecordButton.onclick = () => {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+            }
+        };
+
+        function logMessage(message) {
+            const p = document.createElement('p');
+            p.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            messagesDiv.appendChild(p);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight; // Scroll to bottom
+        }
+
+        function resetUI() {
+            connectButton.disabled = false;
+            disconnectButton.disabled = true;
+            startRecordButton.disabled = true;
+            stopRecordButton.disabled = true;
+            serverUrlInput.disabled = false;
+            endpointPathInput.disabled = false;
+            sessionIdInput.disabled = false;
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                mediaRecorder.stop();
+            }
+            mediaRecorder = null;
+        }
+    </script>
+</body>
+</html>

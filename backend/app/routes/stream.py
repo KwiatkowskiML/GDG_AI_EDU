@@ -165,7 +165,6 @@ async def ws_vad_endpoint(
     except Exception as e:
         print(f"VAD Client #{session_id}: An unexpected error occurred: {e}")
     finally:
-        # Process any remaining audio in the VAD buffer
         print(f"VAD Client #{session_id}: Cleaning up VAD resources...")
         async for speech_segment in vad_handler.cleanup():
             if speech_segment and websocket.client_state == websocket.client_state.CONNECTED:
