@@ -10,3 +10,21 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: react-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://backend:8000
+      - NODE_ENV=development
+    depends_on:
+      - backend
+    restart: unless-stopped

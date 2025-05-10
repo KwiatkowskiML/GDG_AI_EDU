@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from backend.data.mocked_data import flashcards
+from app.data.mocked_data import flashcards
 
 router = APIRouter()
 
