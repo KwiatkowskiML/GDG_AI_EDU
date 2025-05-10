@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket VAD & Transcription Test</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background-color: #f4f4f4; color: #333; }
+        .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1, h2 { color: #333; }
+        label { margin-right: 10px; }
+        input[type="text"] { padding: 8px; margin-right: 10px; border: 1px solid #ddd; border-radius: 4px; }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            transition: background-color 0.3s ease;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #ccc; cursor: not-allowed; }
+        #status, #vadStatus { font-weight: bold; }
+        #transcripts {
+            margin-top: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            background-color: #f9f9f9;
+            min-height: 100px;
+            border-radius: 4px;
+            white-space: pre-wrap; /* Preserve line breaks */
+        }
+        .transcript-item {
+            padding: 5px 0;
+            border-bottom: 1px dashed #ddd;
+        }
+        .transcript-item:last-child {
+            border-bottom: none;
+        }
+        .error { color: red; font-weight: bold; }
+        .info { color: green; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebSocket VAD & Transcription Test</h1>
+
+        <div>
+            <label for="sessionId">Session ID:</label>
+            <input type="text" id="sessionId" value="test-session-html-client">
+            <button id="connectBtn">Connect</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+
+        <div>
+            <button id="startRecordBtn" disabled>Start Recording</button>
+            <button id="stopRecordBtn" disabled>Stop Recording</button>
+        </div>
+
+        <div>
+            <strong>Overall Status:</strong> <span id="status">Idle</span>
+        </div>
+        <div>
+            <strong>Server/VAD Messages:</strong> <span id="vadStatus"></span>
+        </div>
+
+        <h2>Transcripts:</h2>
+        <div id="transcripts"></div>
+    </div>
+
+    <script>
+        const sessionIdInput = document.getElementById('sessionId');
+        const connectBtn = document.getElementById('connectBtn');
+        const disconnectBtn = document.getElementById('disconnectBtn');
+        const startRecordBtn = document.getElementById('startRecordBtn');
+        const stopRecordBtn = document.getElementById('stopRecordBtn');
+        const statusDisplay = document.getElementById('status');
+        const vadStatusDisplay = document.getElementById('vadStatus');
+        const transcriptsDiv = document.getElementById('transcripts');
+
+        let websocket = null;
+        let audioContext = null;
+        let scriptProcessorNode = null;
+        let mediaStream = null;
+        let isRecording = false;
+
+        const TARGET_SAMPLE_RATE = 16000; // Must match server's SAMPLE_RATE
+        const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096; // Adjust as needed, power of 2
+
+        connectBtn.onclick = () => {
+            const sessionId = sessionIdInput.value.trim();
+            if (!sessionId) {
+                alert("Please enter a Session ID.");
+                return;
+            }
+            // Adjust the URL to your server's address and port if different
+            const wsUrl = `ws://localhost:8000/stream/ws/${sessionId}`;
+            websocket = new WebSocket(wsUrl);
+
+            statusDisplay.textContent = 'Connecting...';
+            vadStatusDisplay.textContent = '';
+            transcriptsDiv.innerHTML = ''; // Clear previous transcripts
+
+            websocket.onopen = () => {
+                statusDisplay.textContent = 'Connected';
+                statusDisplay.className = 'info';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+                startRecordBtn.disabled = false;
+                sessionIdInput.disabled = true;
+                vadStatusDisplay.textContent = 'WebSocket connected. Ready to record.';
+            };
+
+            websocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log("Received from server:", data);
+                    if (data.event === "transcript" || data.event === "final_transcript") {
+                        const transcriptItem = document.createElement('div');
+                        transcriptItem.className = 'transcript-item';
+                        transcriptItem.textContent = `[${new Date().toLocaleTimeString()}] ${data.transcript}`;
+                        transcriptsDiv.appendChild(transcriptItem);
+                        transcriptsDiv.scrollTop = transcriptsDiv.scrollHeight; // Scroll to bottom
+                        vadStatusDisplay.textContent = `Transcript received (${data.audio_length_bytes} bytes processed).`;
+
+                    } else if (data.event === "end_of_speech") {
+                         vadStatusDisplay.textContent = data.message;
+                    } else if (data.event === "error") {
+                        vadStatusDisplay.textContent = `Server Error: ${data.message}`;
+                        vadStatusDisplay.className = 'error';
+                    } else {
+                        vadStatusDisplay.textContent = `Unknown event: ${JSON.stringify(data)}`;
+                    }
+                } catch (e) {
+                    console.error("Error parsing message or unknown message format:", event.data, e);
+                    vadStatusDisplay.textContent = `Received non-JSON: ${event.data}`;
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+                statusDisplay.textContent = 'Connection Error!';
+                statusDisplay.className = 'error';
+                vadStatusDisplay.textContent = 'WebSocket error. Check console.';
+                resetUI();
+            };
+
+            websocket.onclose = (event) => {
+                statusDisplay.textContent = `Disconnected (Code: ${event.code}, Reason: ${event.reason || 'N/A'})`;
+                statusDisplay.className = event.wasClean ? '' : 'error';
+                vadStatusDisplay.textContent = 'WebSocket closed.';
+                stopAudio(); // Ensure audio resources are released
+                resetUI();
+            };
+        };
+
+        disconnectBtn.onclick = () => {
+            if (websocket) {
+                websocket.close();
+            }
+        };
+
+        startRecordBtn.onclick = async () => {
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                alert("WebSocket is not connected.");
+                return;
+            }
+            if (isRecording) return;
+
+            try {
+                statusDisplay.textContent = 'Initializing Mic...';
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: TARGET_SAMPLE_RATE, // Request target sample rate
+                        channelCount: 1, // Mono
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                    },
+                    video: false
+                });
+
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: TARGET_SAMPLE_RATE // Ensure AudioContext also tries for this rate
+                });
+
+                const source = audioContext.createMediaStreamSource(mediaStream);
+
+                // Check actual sample rate from the source track
+                const actualSampleRate = mediaStream.getAudioTracks()[0].getSettings().sampleRate;
+                console.log(`Requested ${TARGET_SAMPLE_RATE}Hz, Got ${actualSampleRate}Hz from microphone.`);
+                if (actualSampleRate !== TARGET_SAMPLE_RATE) {
+                    vadStatusDisplay.textContent = `Warning: Mic SR is ${actualSampleRate}Hz, Server expects ${TARGET_SAMPLE_RATE}Hz. Quality may be affected. Manual resampling might be needed for best results.`;
+                    vadStatusDisplay.className = 'error';
+                } else {
+                    vadStatusDisplay.textContent = `Mic initialized at ${actualSampleRate}Hz.`;
+                    vadStatusDisplay.className = '';
+                }
+
+
+                // ScriptProcessorNode is deprecated but simpler for this example.
+                // For production, consider AudioWorklet.
+                scriptProcessorNode = audioContext.createScriptProcessor(
+                    SCRIPT_PROCESSOR_BUFFER_SIZE,
+                    1, // Input channels (mono)
+                    1  // Output channels (mono)
+                );
+
+                scriptProcessorNode.onaudioprocess = (audioProcessingEvent) => {
+                    if (!isRecording || !websocket || websocket.readyState !== WebSocket.OPEN) {
+                        return;
+                    }
+
+                    const inputBuffer = audioProcessingEvent.inputBuffer;
+                    const pcmData = inputBuffer.getChannelData(0); // Float32Array: -1.0 to 1.0
+
+                    // Convert Float32 to Int16 PCM
+                    const int16Pcm = new Int16Array(pcmData.length);
+                    for (let i = 0; i < pcmData.length; i++) {
+                        let s = Math.max(-1, Math.min(1, pcmData[i]));
+                        int16Pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+                    }
+                    websocket.send(int16Pcm.buffer); // Send as ArrayBuffer
+                };
+
+                source.connect(scriptProcessorNode);
+                scriptProcessorNode.connect(audioContext.destination); // Connect to output, though not strictly necessary if only sending
+
+                isRecording = true;
+                startRecordBtn.disabled = true;
+                stopRecordBtn.disabled = false;
+                statusDisplay.textContent = 'Recording...';
+                vadStatusDisplay.textContent = 'Sending audio data...';
+                vadStatusDisplay.className = 'info';
+
+            } catch (err) {
+                console.error('Error starting recording:', err);
+                statusDisplay.textContent = `Error: ${err.name} - ${err.message}`;
+                statusDisplay.className = 'error';
+                vadStatusDisplay.textContent = `Could not start recording: ${err.message}`;
+                stopAudio(); // Clean up
+            }
+        };
+
+        stopRecordBtn.onclick = () => {
+            stopAudio();
+            if (isRecording) {
+                isRecording = false;
+                startRecordBtn.disabled = false;
+                stopRecordBtn.disabled = true;
+                statusDisplay.textContent = 'Recording Stopped.';
+                vadStatusDisplay.textContent = 'Audio sending stopped.';
+            }
+        };
+
+        function stopAudio() {
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            if (scriptProcessorNode) {
+                scriptProcessorNode.disconnect();
+                scriptProcessorNode.onaudioprocess = null; // Remove handler
+                scriptProcessorNode = null;
+            }
+            if (audioContext && audioContext.state !== 'closed') {
+                audioContext.close().catch(e => console.error("Error closing AudioContext:", e));
+                audioContext = null;
+            }
+            isRecording = false;
+        }
+
+        function resetUI() {
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+            startRecordBtn.disabled = true;
+            stopRecordBtn.disabled = true;
+            sessionIdInput.disabled = false;
+            isRecording = false;
+        }
+
+    </script>
+</body>
+</html>
