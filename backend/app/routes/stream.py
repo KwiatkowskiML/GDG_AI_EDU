@@ -4,7 +4,7 @@ from app.agent.stream import start_agent_session, agent_to_client_messaging, cli
 
 router = APIRouter()
 
-@router.get("`/")
+@router.get("/")
 def status():
     return {"status":"healthy"}
 
