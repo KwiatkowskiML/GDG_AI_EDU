@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import threading
 import queue
 import time
@@ -24,6 +25,16 @@ APP_NAME = "Real-Time TTS Streaming Example"
 QUESTION = "what is the role of the kidney??"
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
+def sanitize_text(text: str) -> str:
+    """Remove markdown formatting and special characters from text"""
+    # Remove markdown bullets, asterisks, and other special formatting
+    text = re.sub(r'^\s*[\*\-]\s*', '', text, flags=re.MULTILINE)  # Remove bullet points
+    text = re.sub(r'\*{2,}', '', text)  # Remove bold markers
+    text = re.sub(r'\#{2,}', '', text)  # Remove headers
+    text = re.sub(r'\[.*?\]\(.*?\)', '', text)  # Remove links
+    text = re.sub(r'<.*?>', '', text)  # Remove HTML tags
+    text = text.replace('*', '').replace('_', '')  # Remove remaining special chars
+    return text.strip()
 
 class TTSStreamer:
     def __init__(self):
@@ -111,7 +122,8 @@ async def _agent_stream(question: str, out_queue: queue.Queue):
 
         text = event.content.parts[0].text
         if text:
-            out_queue.put(text)
+            clean_text = sanitize_text(text)
+            out_queue.put(clean_text)
 
         if event.turn_complete:
             break

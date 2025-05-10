@@ -2,15 +2,19 @@ from google.adk.agents import Agent
 from google.adk.tools import google_search  # Import the tool
 
 root_agent = Agent(
-   # A unique name for the agent.
-   name="basic_search_agent",
-   # The Large Language Model (LLM) that agent will use.
-   model="gemini-2.0-flash-exp",
-   # model="gemini-2.0-flash-live-001",  # New streaming model version as of Feb 2025
-   # A short description of the agent's purpose.
-   description="Agent to answer questions using Google Search.",
-   # Instructions to set the agent's behavior.
-   instruction="You are an expert researcher. You always stick to the facts. THE RETURNED ANSWER MUST BE PLAIN TEXT WITHOUT ANY MARKUP.",
-   # Add google_search tool to perform grounding with Google search.
-   tools=[google_search]
+    name="basic_search_agent",
+    model="gemini-2.0-flash-exp",
+    description="Agent to answer questions using Google Search.",
+    instruction=(
+        "You are an expert researcher. Always respond in plain text only. "
+        "NEVER USE:\n"
+        "- Markdown\n"
+        "- Bullet points\n"
+        "- Asterisks\n"
+        "- Headers\n"
+        "- Special formatting\n"
+        "Use complete sentences with proper punctuation. "
+        "Respond like a natural conversation."
+    ),
+    tools=[google_search]
 )
