@@ -2,3 +2,5 @@ uvicorn
 fastapi
 google-adk
 google-generativeai
+webrtcvad
+setuptools
