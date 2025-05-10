@@ -10,7 +10,7 @@ root_agent = Agent(
    # A short description of the agent's purpose.
    description="Agent to answer questions using Google Search.",
    # Instructions to set the agent's behavior.
-   instruction="You are an expert researcher. You always stick to the facts.",
+   instruction="You are an expert researcher. You always stick to the facts. THE RETURNED ANSWER MUST BE PLAIN TEXT WITHOUT ANY MARKUP.",
    # Add google_search tool to perform grounding with Google search.
    tools=[google_search]
 )

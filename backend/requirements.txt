@@ -6,3 +6,5 @@ webrtcvad
 setuptools
 google-cloud-texttospeech
 PyAudio
+sounddevice
+numpy
