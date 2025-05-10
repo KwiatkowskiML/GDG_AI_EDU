@@ -2,15 +2,14 @@ from fastapi import FastAPI
 from backend.routes.flashcards import router as flashcards_router
 import uvicorn
 
-app = FastAPI()
-
-# Include the flashcards router under /api
+app = FastAPI(
+    title="Main service",
+    description="All of the routes are in this service",
+    version="1.0.0",
+)
 app.include_router(flashcards_router, prefix="/api")
 
-if __name__ == "main":
-    uvicorn.run(
-        "main:app",
-        host="127.0.0.1",
-        port=8001,
-        reload=True
-    )
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring"""
+    return {"status": "healthy"}
