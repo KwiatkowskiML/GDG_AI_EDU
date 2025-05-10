@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from backend.routes.flashcards import router as flashcards_router
+from backend.routes.stream import router as stream_router
 import uvicorn
 
 app = FastAPI(
@@ -8,6 +9,7 @@ app = FastAPI(
     version="1.0.0",
 )
 app.include_router(flashcards_router, prefix="/api")
+app.include_router(stream_router, prefix="/stream")
 
 @app.get("/health")
 def health_check():
