@@ -4,3 +4,5 @@ google-adk
 google-generativeai
 webrtcvad
 setuptools
+google-cloud-texttospeech
+PyAudio
