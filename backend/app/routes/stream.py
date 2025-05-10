@@ -3,18 +3,19 @@ from app.agent.vad import VoiceActivityDetector
 from app.agent.vad_constants import (
     SAMPLE_RATE, FRAME_DURATION_MS, BYTES_PER_FRAME, SILENCE_DURATION_MS_EOS
 )
+from app.agent.transcribe_agent import TranscribeAgent
 
 router = APIRouter()
 
 try:
-    gemini_agent = GoogleGeminiAgent()
+    gemini_agent = TranscribeAgent()
 except ValueError as e:
     print(f"Failed to initialize GoogleGeminiAgent: {e}")
     pass
 
 
 @router.websocket("/ws/{session_id}")
-async def websocket_vad_endpoint(websocket: WebSocket, session_id: str):
+async def ws_stream_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     print(f"Client #{session_id} connected. Initializing VAD...")
     print(
