@@ -4,11 +4,7 @@ from app.agent.stream import start_agent_session, agent_to_client_messaging, cli
 
 router = APIRouter()
 
-@router.get("/")
-def status():
-    return {"status":"healthy"}
-
-@router.websocket("/{session_id}")
+@router.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: int):
     """Client websocket endpoint"""
 
