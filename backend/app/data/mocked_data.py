@@ -1,4 +1,4 @@
-from backend.models.flash_card import FlashCard
+from app.models.flash_card import FlashCard
 
 flashcards = [
     FlashCard(

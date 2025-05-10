@@ -1,8 +1,6 @@
 from fastapi import FastAPI
-from backend.routes.flashcards import router as flashcards_router
-from backend.routes.stream import router as stream_router
-import uvicorn
-
+from app.routes.flashcards import router as flashcards_router
+from app.routes.stream import router as stream_router
 app = FastAPI(
     title="Main service",
     description="All of the routes are in this service",
