@@ -3,6 +3,5 @@ from pydantic import BaseModel
 class FlashCard(BaseModel):
     id: int
     text: str
-    answers: list[str]
-    correct_answer: int
+    answer: str
     text_reference: str

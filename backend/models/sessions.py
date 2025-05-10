@@ -1,11 +1,8 @@
 from pydantic import BaseModel
-
-class FlashCardAnswer(BaseModel):
-    id: int
-    answer: int
+from backend.models.flash_card import FlashCard
 
 class Session(BaseModel):
-    answers: list[FlashCardAnswer]
+    answers: list[FlashCard]
 
 class Sessions(BaseModel):
     sessions: list[Session]
