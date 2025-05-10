@@ -1,29 +1,27 @@
-from fastapi import APIRouter, WebSocket
-import asyncio
-from app.agent.stream import start_agent_session, agent_to_client_messaging, client_to_agent_messaging
-
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 router = APIRouter()
 
+
 @router.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: int):
-    """Client websocket endpoint"""
-
-    # Wait for client connection
+async def websocket_audio_echo_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
-    print(f"Client #{session_id} connected")
+    print(f"Audio Echo Client #{session_id} connected")
 
-    # Start agent session
-    session_id = str(session_id)
-    live_events, live_request_queue = start_agent_session(session_id)
+    try:
+        while True:
+            audio_chunk = await websocket.receive_bytes()
 
-    # Start tasks
-    agent_to_client_task = asyncio.create_task(
-        agent_to_client_messaging(websocket, live_events)
-    )
-    client_to_agent_task = asyncio.create_task(
-        client_to_agent_messaging(websocket, live_request_queue)
-    )
-    await asyncio.gather(agent_to_client_task, client_to_agent_task)
+            if not audio_chunk:
+                print(f"Audio Echo Client #{session_id}: Received empty data, continuing...")
+                continue
 
-    # Disconnected
-    print(f"Client #{session_id} disconnected")
+            print(f"Audio Echo Client #{session_id}: Received {len(audio_chunk)} bytes of audio.")
+            await websocket.send_bytes(audio_chunk)
+            print(f"Audio Echo Client #{ssession_id}: Echoed {len(audio_chunk)} bytes back.")
+
+    except WebSocketDisconnect:
+        print(f"Audio Echo Client #{session_id} disconnected.")
+    except Exception as e:
+        print(f"Audio Echo Client #{session_id}: An error occurred: {e}")
+    finally:
+        print(f"Audio Echo Client #{session_id} connection processing finished.")
