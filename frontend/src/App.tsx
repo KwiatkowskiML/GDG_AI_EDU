@@ -1,22 +1,27 @@
-import { useState } from "react";
-import MainPage from "./components/MainPage";
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+} from "react-router-dom";
 import NavBar from "./components/NavBar";
-import SideBar, { type ActiveSideBarItem } from "./components/SideBar";
+import SideBar from "./components/SideBar";
+import PdfViewer from "./components/PdfViewer";
+import LibraryPage from "./components/LibraryPage";
+import FlashcardsPage from "./components/FlashcardsPage";
 
 function App() {
-  const [currentActiveItem, setCurrentActiveItem] =
-    useState<ActiveSideBarItem>("Library");
-
-  const handleActiveItemChange = (item: ActiveSideBarItem) => {
-    setCurrentActiveItem(item);
-  };
-
   return (
-    <>
+    <Router>
       <NavBar />
-      <MainPage currentActiveItem={currentActiveItem}/>
-      <SideBar activeItem={currentActiveItem} name="Jakub" handleActiveItemChange={handleActiveItemChange} />
-    </>
+      <SideBar name="Jakub" />
+      <Routes>
+        <Route path="/" element={<Navigate to="/library" />} />
+        <Route path="/library" element={<LibraryPage />} />
+        <Route path="/library/pdf" element={<PdfViewer />} />
+        <Route path="/flashcards" element={<FlashcardsPage />} />
+      </Routes>
+    </Router>
   );
 }
 
