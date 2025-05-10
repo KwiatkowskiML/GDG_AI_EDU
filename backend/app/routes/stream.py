@@ -17,7 +17,7 @@ async def websocket_audio_echo_endpoint(websocket: WebSocket, session_id: str):
 
             print(f"Audio Echo Client #{session_id}: Received {len(audio_chunk)} bytes of audio.")
             await websocket.send_bytes(audio_chunk)
-            print(f"Audio Echo Client #{ssession_id}: Echoed {len(audio_chunk)} bytes back.")
+            print(f"Audio Echo Client #{session_id}: Echoed {len(audio_chunk)} bytes back.")
 
     except WebSocketDisconnect:
         print(f"Audio Echo Client #{session_id} disconnected.")
