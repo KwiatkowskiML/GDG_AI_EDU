@@ -169,7 +169,7 @@ def printer_tts_thread_fn(in_queue: queue.Queue, tts_streamer: TTSStreamer):
     tts_streamer.stop()
 
 
-def main():
+def answer(question: str):
     # Initialize TTS streamer
     tts_streamer = TTSStreamer()
     tts_streamer.start()
@@ -179,7 +179,7 @@ def main():
 
     # Create and start threads
     threads = [
-        threading.Thread(target=agent_thread_fn, args=(QUESTION, agent_queue)),
+        threading.Thread(target=agent_thread_fn, args=(question, agent_queue)),
         threading.Thread(target=printer_tts_thread_fn, args=(agent_queue, tts_streamer))
     ]
 
@@ -192,4 +192,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    answer(QUESTION)
