@@ -1,7 +1,10 @@
 from app.agent.transcribe_agent import TranscribeAgent
 from fastapi import WebSocket
+from app.agent.real_time_answer import answer_with_pdf
 
-async def transcribe(transcribe_agent : TranscribeAgent, socket : WebSocket, id: str) -> None:
+PDF_PATH = "./backend/app/data/attention_is_all_you_need.pdf"
+
+async def transcribe(transcribe_agent: TranscribeAgent, socket: WebSocket, id: str) -> None:
     while True:
         raw_pcm_audio_chunk = await socket.receive_bytes()
         if not raw_pcm_audio_chunk:
@@ -11,9 +14,14 @@ async def transcribe(transcribe_agent : TranscribeAgent, socket : WebSocket, id:
         try:
             transcript = await transcribe_agent.transcribe_audio_chunk(raw_pcm_audio_chunk)
             if transcript:
-                print(f"Client #{id}: Sent transcript: \"{transcript}\"")
+                print(f"Client #{id}: got transcript: \"{transcript}\"")
+                async for part in answer_with_pdf(transcript, PDF_PATH):
+                    text = part["text_chunk"]
+                    audio_bytes = part["audio_chunk"]
 
-                # Process here and send back
+                    print(text, end="", flush=True)
+
+                    await socket.send_bytes(audio_bytes)
             else:
                 print(f"Client #{id}: Agent returned empty transcript.")
         except Exception as e:
