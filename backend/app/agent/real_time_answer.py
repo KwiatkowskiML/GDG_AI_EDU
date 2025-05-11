@@ -6,6 +6,7 @@ import queue
 import time
 import numpy as np
 from dotenv import load_dotenv
+from google.adk.tools import google_search
 from google.cloud import texttospeech
 import sounddevice as sd  # For low-latency audio playback
 
@@ -15,14 +16,14 @@ from google.adk.runners import Runner
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.agents.run_config import RunConfig
 from google.genai.types import Part, Content
-from backend.app.agent.base_agent import root_agent
+from backend.app.agent.base_agent import root_agent, PDFProcessor
 
 # Load environment variables
 load_dotenv()
 
 # Globals
 APP_NAME = "Real-Time TTS Streaming Example"
-QUESTION = "what is the role of the kidney??"
+QUESTION = "what is the role of the decoder??"
 GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
 
 def sanitize_text(text: str) -> str:
@@ -89,13 +90,16 @@ class TTSStreamer:
                 print(f"Audio playback error: {str(e)}")
 
 
-async def _agent_stream(question: str, out_queue: queue.Queue):
-    """Async agent streaming implementation"""
+async def _agent_stream(question: str, out_queue: queue.Queue, doc_text: str):
+    """Async agent streaming implementation with document context"""
     session_service = InMemorySessionService()
+
+    # Create session
     session = session_service.create_session(
         app_name=APP_NAME,
         user_id="user1",
         session_id="session1",
+        state={"document_text": doc_text}
     )
 
     runner = Runner(
@@ -104,6 +108,7 @@ async def _agent_stream(question: str, out_queue: queue.Queue):
         session_service=session_service,
     )
 
+    # Rest of the function remains the same
     run_config = RunConfig(response_modalities=["TEXT"])
     live_request_queue = LiveRequestQueue()
 
@@ -131,10 +136,9 @@ async def _agent_stream(question: str, out_queue: queue.Queue):
     out_queue.put(None)
 
 
-def agent_thread_fn(question: str, out_queue: queue.Queue):
-    """Agent thread entry point"""
-    asyncio.run(_agent_stream(question, out_queue))
-
+def agent_thread_fn(question: str, out_queue: queue.Queue, doc_text: str):
+    """Agent thread entry point with document context"""
+    asyncio.run(_agent_stream(question, out_queue, doc_text))
 
 def printer_tts_thread_fn(in_queue: queue.Queue, tts_streamer: TTSStreamer):
     """Combined printer and TTS buffering thread"""
@@ -169,7 +173,11 @@ def printer_tts_thread_fn(in_queue: queue.Queue, tts_streamer: TTSStreamer):
     tts_streamer.stop()
 
 
-def answer(question: str):
+def answer_with_pdf(question: str, pdf_path: str):
+    # Process PDF
+    processor = PDFProcessor(pdf_path)
+    processor.process_pdf()
+
     # Initialize TTS streamer
     tts_streamer = TTSStreamer()
     tts_streamer.start()
@@ -179,7 +187,7 @@ def answer(question: str):
 
     # Create and start threads
     threads = [
-        threading.Thread(target=agent_thread_fn, args=(question, agent_queue)),
+        threading.Thread(target=agent_thread_fn, args=(question, agent_queue, processor.full_text)),
         threading.Thread(target=printer_tts_thread_fn, args=(agent_queue, tts_streamer))
     ]
 
@@ -192,4 +200,4 @@ def answer(question: str):
 
 
 if __name__ == "__main__":
-    answer(QUESTION)
+    answer_with_pdf(QUESTION, "/home/michal/studia/sem6/ds-midi/papers/attention_is_all_you_need.pdf")

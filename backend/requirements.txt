@@ -7,3 +7,5 @@ setuptools
 google-cloud-texttospeech
 sounddevice
 numpy
+pypdf
+google-cloud-aiplatform
