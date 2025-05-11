@@ -22,8 +22,7 @@ def get_transcribe_agent():
         print(f"Failed to initialize TranscribeAgent: {e}")
         raise
 
-
-@router.websocket("/ws/{session_id}")
+@router.websocket("/discuss/{session_id}")
 async def ws_stream_endpoint(
         websocket: WebSocket,
         session_id: str,
@@ -35,6 +34,35 @@ async def ws_stream_endpoint(
         f"Client #{session_id} Audio Config: SR={SAMPLE_RATE}, FrameDur={FRAME_DURATION_MS}ms, "
         f"Bytes/Frame={BYTES_PER_FRAME}, EOS Silence={SILENCE_DURATION_MS_EOS}ms"
     )
+    print(f"Client #{session_id}: EXPECTING RAW PCM (16-bit, {SAMPLE_RATE}Hz, mono) from client.")
+
+    try:
+        vad_handler = VoiceActivityDetector(session_id)
+    except Exception as e:
+        print(f"Client #{session_id}: Critical error initializing VAD: {e}")
+        await websocket.close(code=1011, reason=f"Server VAD initialization error: {e}")
+        return
+
+    try:
+        pass
+    except WebSocketDisconnect:
+        print(f"Client #{session_id} disconnected.")
+    except Exception as e:
+        print(f"Client #{session_id}: An unexpected error occurred: {e}")
+
+@router.websocket("/test/transcribe/{session_id}")
+async def ws_stream_endpoint(
+        websocket: WebSocket,
+        session_id: str,
+        transcribe_agent: TranscribeAgent = Depends(get_transcribe_agent)
+):
+    await websocket.accept()
+    print(f"Client #{session_id} connected. Initializing VAD...")
+    print(
+        f"Client #{session_id} Audio Config: SR={SAMPLE_RATE}, FrameDur={FRAME_DURATION_MS}ms, "
+        f"Bytes/Frame={BYTES_PER_FRAME}, EOS Silence={SILENCE_DURATION_MS_EOS}ms"
+    )
+    print(f"Client #{session_id}: EXPECTING RAW PCM (16-bit, {SAMPLE_RATE}Hz, mono) from client.")
 
     try:
         vad_handler = VoiceActivityDetector(session_id)
@@ -45,12 +73,12 @@ async def ws_stream_endpoint(
 
     try:
         while True:
-            audio_chunk = await websocket.receive_bytes()
-            if not audio_chunk:
+            raw_pcm_audio_chunk = await websocket.receive_bytes()
+            if not raw_pcm_audio_chunk:
                 print(f"Client #{session_id}: Received empty data, continuing...")
                 continue
 
-            async for speech_segment in vad_handler.process_audio_chunk(audio_chunk):
+            async for speech_segment in vad_handler.process_audio_chunk(raw_pcm_audio_chunk):
                 if speech_segment:
                     print(
                         f"Client #{session_id}: VAD yielded speech segment of {len(speech_segment)} bytes. Sending to agent.")
@@ -129,16 +157,13 @@ async def ws_vad_endpoint(
         websocket: WebSocket,
         session_id: str
 ):
-    """
-    VAD endpoint that processes audio with Voice Activity Detection and
-    returns only the cleaned speech segments back to the client.
-    """
     await websocket.accept()
     print(f"VAD Client #{session_id} connected. Initializing VAD...")
     print(
         f"VAD Client #{session_id} Audio Config: SR={SAMPLE_RATE}, FrameDur={FRAME_DURATION_MS}ms, "
         f"Bytes/Frame={BYTES_PER_FRAME}, EOS Silence={SILENCE_DURATION_MS_EOS}ms"
     )
+    print(f"VAD Client #{session_id}: EXPECTING RAW PCM (16-bit, {SAMPLE_RATE}Hz, mono) from client.")
 
     try:
         vad_handler = VoiceActivityDetector(session_id)
@@ -149,12 +174,12 @@ async def ws_vad_endpoint(
 
     try:
         while True:
-            audio_chunk = await websocket.receive_bytes()
-            if not audio_chunk:
+            raw_pcm_audio_chunk = await websocket.receive_bytes()
+            if not raw_pcm_audio_chunk:
                 print(f"VAD Client #{session_id}: Received empty data, continuing...")
                 continue
 
-            async for speech_segment in vad_handler.process_audio_chunk(audio_chunk):
+            async for speech_segment in vad_handler.process_audio_chunk(raw_pcm_audio_chunk):
                 if speech_segment:
                     await websocket.send_bytes(speech_segment)
                     print(

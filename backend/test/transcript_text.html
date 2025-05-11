@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WebSocket Transcription Test</title>
+    <title>WebSocket Transcription Test (Client-Side PCM)</title>
     <style>
         body { font-family: sans-serif; margin: 20px; background-color: #f0f8ff; color: #333; }
         .container { background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
@@ -22,21 +22,19 @@
 </head>
 <body>
     <div class="container">
-        <h1>WebSocket Transcription Test</h1>
-        <p style="color: red; font-weight: bold;">
-            Note: This test sends audio using browser's MediaRecorder.
-            Your VAD might expect raw PCM audio. If transcription quality is poor or VAD doesn't work,
-            this audio format difference could be the reason. See comments in HTML source.
-            The VAD constants in your Python code (SAMPLE_RATE, etc.) suggest raw PCM.
+        <h1>WebSocket Transcription Test (Client-Side PCM Processing)</h1>
+        <p style="color: blue; font-weight: bold;">
+            This version attempts to decode, resample to 16kHz, convert to 16-bit PCM,
+            and send raw audio bytes from the browser.
         </p>
 
         <label for="sessionId">Session ID:</label>
-        <input type="text" id="sessionId" value="transcribe_session_001">
+        <input type="text" id="sessionId" value="transcribe_pcm_001">
 
         <button id="connectButton" class="connect-btn">Connect</button>
         <button id="disconnectButton" class="disconnect-btn" disabled>Disconnect</button>
         <br>
-        <button id="startRecordButton" class="record-btn" disabled>Start Recording & Sending</button>
+        <button id="startRecordButton" class="record-btn" disabled>Start Recording & Sending PCM</button>
         <button id="stopRecordButton" class="stop-record-btn" disabled>Stop Recording</button>
 
         <div id="status">Not connected.</div>
@@ -60,10 +58,67 @@
 
         let websocket = null;
         let mediaRecorder = null;
-        let audioChunks = [];
+        let audioContext = null; // For Web Audio API processing
 
-        const REQUESTED_SAMPLE_RATE = 16000;
-        const TIMESLICE_MS = 30;
+        // Server's expected sample rate (MUST MATCH VAD_CONSTANTS.SAMPLE_RATE on server)
+        const TARGET_SAMPLE_RATE = 16000;
+        const TIMESLICE_MS = 250; // How often MediaRecorder provides data
+
+        // --- Audio Processing Helper Functions ---
+        async function processAudioBlob(blob) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            try {
+                const arrayBuffer = await blob.arrayBuffer();
+                logInternal(`Original blob size: ${blob.size} bytes, type: ${blob.type}`);
+
+                const decodedAudioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                logInternal(`Decoded. SampleRate: ${decodedAudioBuffer.sampleRate}, Channels: ${decodedAudioBuffer.numberOfChannels}, Duration: ${decodedAudioBuffer.duration.toFixed(3)}s`);
+
+                let resampledBuffer;
+                if (decodedAudioBuffer.sampleRate === TARGET_SAMPLE_RATE && decodedAudioBuffer.numberOfChannels === 1) {
+                    resampledBuffer = decodedAudioBuffer;
+                    logInternal("Audio already at target sample rate and mono.");
+                } else {
+                    logInternal(`Resampling from ${decodedAudioBuffer.sampleRate}Hz to ${TARGET_SAMPLE_RATE}Hz and/or converting to mono.`);
+                    // Create an OfflineAudioContext for resampling and mono conversion
+                    // Calculate length based on TARGET_SAMPLE_RATE and original duration
+                    const targetLength = Math.ceil(decodedAudioBuffer.duration * TARGET_SAMPLE_RATE);
+                    const offlineContext = new OfflineAudioContext(1, targetLength, TARGET_SAMPLE_RATE); // 1 channel (mono)
+
+                    const bufferSource = offlineContext.createBufferSource();
+                    bufferSource.buffer = decodedAudioBuffer;
+                    bufferSource.connect(offlineContext.destination);
+                    bufferSource.start(0);
+
+                    resampledBuffer = await offlineContext.startRendering();
+                    logInternal(`Resampled/Mono. New SR: ${resampledBuffer.sampleRate}, Channels: ${resampledBuffer.numberOfChannels}, Duration: ${resampledBuffer.duration.toFixed(3)}s`);
+                }
+
+                // Convert float32 data to 16-bit PCM
+                const pcm16Data = convertFloat32ToInt16(resampledBuffer.getChannelData(0)); // Assuming mono after resampling
+                logInternal(`Converted to 16-bit PCM. Byte length: ${pcm16Data.byteLength}`);
+                return pcm16Data.buffer; // Send the ArrayBuffer containing Int16 data
+
+            } catch (error) {
+                logInternal(`Error processing audio blob: ${error.message}`);
+                console.error("Audio processing error:", error);
+                return null;
+            }
+        }
+
+        function convertFloat32ToInt16(float32Array) {
+            const pcm16Array = new Int16Array(float32Array.length);
+            for (let i = 0; i < float32Array.length; i++) {
+                let s = Math.max(-1, Math.min(1, float32Array[i])); // Clamp to [-1, 1]
+                pcm16Array[i] = s < 0 ? s * 0x8000 : s * 0x7FFF; // Scale to 16-bit signed int
+            }
+            return pcm16Array;
+        }
+        // --- End Audio Processing Helper Functions ---
+
 
         connectButton.onclick = () => {
             const sessionId = sessionIdInput.value.trim();
@@ -71,8 +126,8 @@
                 alert("Please enter a Session ID.");
                 return;
             }
-            // Assuming your FastAPI server runs on localhost:8000
-            const wsUrl = `ws://localhost:8000/ws/${sessionId}`;
+            const wsUrl = `ws://localhost:8000/ws/${sessionId}`; // For transcription
+            // For VAD test, use: `ws://localhost:8000/test/vad/${sessionId}`;
 
             statusDiv.textContent = `Connecting to ${wsUrl}...`;
             logInternal(`Attempting to connect to: ${wsUrl}`);
@@ -85,23 +140,35 @@
                 disconnectButton.disabled = false;
                 startRecordButton.disabled = false;
                 sessionIdInput.disabled = true;
+                // Initialize AudioContext here if not already done, or on first audio processing
+                if (!audioContext) {
+                     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
             };
 
             websocket.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data);
-                    logInternal(`Received JSON: ${JSON.stringify(data)}`);
-                    if (data.event === 'transcript' || data.event === 'final_transcript') {
-                        const p = document.createElement('p');
-                        p.innerHTML = `<strong>[${data.event}]</strong> ${data.transcript} <em>(Audio bytes: ${data.audio_length_bytes || 'N/A'})</em>`;
-                        transcriptsDiv.appendChild(p);
-                        transcriptsDiv.scrollTop = transcriptsDiv.scrollHeight;
-                    } else {
-                        logInternal(`Received other event: ${data.event}`);
+                // For /ws/{session_id} (transcription)
+                if (typeof event.data === 'string') {
+                    try {
+                        const data = JSON.parse(event.data);
+                        logInternal(`Received JSON: ${JSON.stringify(data)}`);
+                        if (data.event === 'transcript' || data.event === 'final_transcript') {
+                            const p = document.createElement('p');
+                            p.innerHTML = `<strong>[${data.event}]</strong> ${data.transcript} <em>(Audio bytes: ${data.audio_length_bytes || 'N/A'})</em>`;
+                            transcriptsDiv.appendChild(p);
+                            transcriptsDiv.scrollTop = transcriptsDiv.scrollHeight;
+                        } else {
+                            logInternal(`Received other event: ${data.event}`);
+                        }
+                    } catch (e) {
+                        logInternal(`Received non-JSON string message or parse error: ${event.data}`);
+                        console.error("Error parsing message or non-JSON message:", event.data, e);
                     }
-                } catch (e) {
-                    logInternal(`Received non-JSON message or parse error: ${event.data}`);
-                    console.error("Error parsing message or non-JSON message:", event.data, e);
+                }
+                // For /test/vad/{session_id} (VAD test) - it sends raw bytes or JSON
+                else if (event.data instanceof Blob || event.data instanceof ArrayBuffer) {
+                     logInternal(`Received binary data (likely raw PCM from VAD test): ${event.data.byteLength || event.data.size} bytes.`);
+                     // Here you could try to play it back if it's raw PCM and you construct a WAV or use AudioBuffer
                 }
             };
 
@@ -139,8 +206,9 @@
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
-                        sampleRate: REQUESTED_SAMPLE_RATE // Request specific sample rate
-                        // channelCount: 1 // Typically VAD expects mono
+                        // We will resample later, so we can request browser default or a common rate.
+                        // sampleRate: 48000, // Example: request a common high rate
+                        // channelCount: 1 // Request mono if possible, will convert later anyway
                     }
                 });
 
@@ -148,29 +216,27 @@
                 const settings = track.getSettings();
                 logInternal(`Microphone settings: SampleRate=${settings.sampleRate}, ChannelCount=${settings.channelCount}`);
 
-
-                // Options for MediaRecorder. MimeType can be important.
-                // Browsers often default to 'audio/webm;codecs=opus'.
-                // 'audio/wav' or 'audio/pcm' are usually not supported directly by MediaRecorder.
                 const options = {
-                    mimeType: 'audio/webm; codecs=opus', // Common default
-                    // audioBitsPerSecond: 64000, // Optional: bitrate
-                    // sampleRate: REQUESTED_SAMPLE_RATE // Some browsers might support this in options
+                    mimeType: 'audio/webm; codecs=opus',
+                    // audioBitsPerSecond: 128000 // Optional
                 };
-
-                // Check if preferred mimeType is supported
-                // if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-                //    logInternal(`Warning: ${options.mimeType} not supported. Using default.`);
-                //    delete options.mimeType; // Use browser default
-                // }
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                   logInternal(`Warning: ${options.mimeType} not supported. Using browser default.`);
+                   delete options.mimeType;
+                }
 
                 mediaRecorder = new MediaRecorder(stream, options);
-                audioChunks = [];
 
-                mediaRecorder.ondataavailable = (event) => {
+                mediaRecorder.ondataavailable = async (event) => {
                     if (event.data.size > 0 && websocket && websocket.readyState === WebSocket.OPEN) {
-                        websocket.send(event.data); // event.data is a Blob
-                        logInternal(`Sent audio chunk: ${event.data.size} bytes, type: ${event.data.type}`);
+                        logInternal(`MediaRecorder data available: ${event.data.size} bytes`);
+                        const pcmBuffer = await processAudioBlob(event.data);
+                        if (pcmBuffer) {
+                            websocket.send(pcmBuffer); // Send ArrayBuffer of raw PCM
+                            logInternal(`Sent raw PCM audio chunk: ${pcmBuffer.byteLength} bytes to server.`);
+                        } else {
+                            logInternal("PCM processing failed, not sending chunk.");
+                        }
                     }
                 };
 
@@ -184,10 +250,10 @@
                     logInternal("Recording stopped.");
                     startRecordButton.disabled = false;
                     stopRecordButton.disabled = true;
-                    stream.getTracks().forEach(track => track.stop()); // Release microphone
+                    stream.getTracks().forEach(track => track.stop());
                 };
 
-                mediaRecorder.start(TIMESLICE_MS); // Collect TIMESLICE_MS of audio before firing ondataavailable
+                mediaRecorder.start(TIMESLICE_MS);
 
             } catch (err) {
                 console.error("Error accessing microphone:", err);
