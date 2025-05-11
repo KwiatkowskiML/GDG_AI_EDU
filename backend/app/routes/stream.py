@@ -5,7 +5,7 @@ from app.agent.vad_constants import (
 )
 from app.agent.transcribe_agent import TranscribeAgent
 import os
-
+from app.agent.transcription import transcribe
 router = APIRouter()
 
 
@@ -44,7 +44,7 @@ async def ws_stream_endpoint(
         return
 
     try:
-        pass
+        await transcribe(vad_handler, transcribe_agent, websocket, session_id)
     except WebSocketDisconnect:
         print(f"Client #{session_id} disconnected.")
     except Exception as e:
@@ -175,11 +175,13 @@ async def ws_vad_endpoint(
     try:
         while True:
             raw_pcm_audio_chunk = await websocket.receive_bytes()
+
             if not raw_pcm_audio_chunk:
                 print(f"VAD Client #{session_id}: Received empty data, continuing...")
                 continue
 
             async for speech_segment in vad_handler.process_audio_chunk(raw_pcm_audio_chunk):
+                print("Speech found")
                 if speech_segment:
                     await websocket.send_bytes(speech_segment)
                     print(

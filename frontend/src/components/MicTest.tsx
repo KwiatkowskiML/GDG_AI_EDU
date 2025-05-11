@@ -216,7 +216,7 @@ const MicTest: React.FC = () => {
     if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
       return;
     }
-    const ws_url = `ws://localhost:8000/stream/test/echo/123`;
+    const ws_url = `ws://localhost:8000/stream/test/vad/123`;
     setWsStatus(`Connecting to ${ws_url}...`);
     addSystemMessage(`Attempting to connect to: ${ws_url}`);
 
