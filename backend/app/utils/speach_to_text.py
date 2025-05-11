@@ -5,7 +5,7 @@ from google import genai
 def transcribe_audio(
     file_path: str,
     model: str = "gemini-2.0-flash",
-    prompt: str = "Generate a transcript of the speech.",
+    prompt: str = "Generate a transcript of the speech based on the provided raw audio file encoded in pcm",
     api_key: Optional[str] = None
 ) -> str:
     """
