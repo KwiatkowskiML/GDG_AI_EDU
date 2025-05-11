@@ -11,7 +11,7 @@ from google.adk.agents import LiveRequestQueue
 from google.adk.runners import Runner
 from google.adk.agents.run_config import RunConfig
 from google.genai.types import Part, Content
-from backend.app.agent.base_agent import root_agent, PDFProcessor
+from app.agent.base_agent import root_agent, PDFProcessor
 
 APP_NAME = "Async TTS Streaming"
 SENTENCE_FLUSH_INTERVAL = 0.5  # seconds
@@ -116,9 +116,6 @@ async def answer_with_pdf(question: str, pdf_path: str):
 
 
         now = time.monotonic()
-
-        # if chunk is None:
-        #     break
 
         # if real chunk
         if chunk is not None:
