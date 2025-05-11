@@ -1,5 +1,4 @@
 // SideBar.tsx
-import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 // Assuming you might use react-icons, for example:
 import { LuLayoutDashboard, LuListChecks } from "react-icons/lu"; // Example icons
@@ -17,25 +16,6 @@ const SideBar = ({ name }: SideBarProps) => {
   const isActive = (pathPrefix: string) => currentPath.startsWith(pathPrefix);
 
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        // Use REACT_APP_API_URL or VITE_API_URL from your .env
-        const apiUrl = process.env.REACT_APP_API_URL || process.env.VITE_API_URL || "http://localhost:8000";
-        const response = await fetch(`${apiUrl}/`); // Make sure it's REACT_APP_... for CRA or VITE_... for Vite
-        if (!response.ok) {
-          throw new Error("Network response was not ok");
-        }
-        const result = await response.json();
-        console.log(result);
-      } catch (error) {
-        console.error("Error fetching data:", error);
-      }
-    };
-
-    fetchData();
-  }, []);
 
   const navItems = [
     { name: "Library", path: "/library", icon: <LuLayoutDashboard className="mr-3 text-xl" /> },
