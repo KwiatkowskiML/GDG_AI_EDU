@@ -12,7 +12,8 @@ async def transcribe(transcribe_agent: TranscribeAgent, socket: WebSocket, id: s
             continue
 
         try:
-            transcript = await transcribe_agent.transcribe_audio_chunk(raw_pcm_audio_chunk)
+            # transcript = await transcribe_agent.transcribe_audio_chunk(raw_pcm_audio_chunk)
+            transcript = "Hello, what is the role of the decoder in transformer models?"
             if transcript:
                 print(f"Client #{id}: got transcript: \"{transcript}\"")
                 async for part in answer_with_pdf(transcript, PDF_PATH):
