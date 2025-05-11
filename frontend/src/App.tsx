@@ -9,6 +9,8 @@ import SideBar from "./components/SideBar";
 import PdfViewer from "./components/PdfViewer";
 import LibraryPage from "./components/LibraryPage";
 import FlashcardsPage from "./components/FlashcardsPage";
+import MicTest from "./components/MicTest";
+import ModelPage from "./components/ModelPage";
 
 function App() {
   return (
@@ -20,6 +22,8 @@ function App() {
         <Route path="/library" element={<LibraryPage />} />
         <Route path="/library/pdf" element={<PdfViewer />} />
         <Route path="/flashcards" element={<FlashcardsPage />} />
+        <Route path="/mic-test" element={<MicTest />} />
+        <Route path="/model-page" element={<ModelPage />} />
       </Routes>
     </Router>
   );

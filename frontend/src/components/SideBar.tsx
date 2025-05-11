@@ -1,4 +1,8 @@
+// SideBar.tsx
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+// Assuming you might use react-icons, for example:
+import { LuLayoutDashboard, LuListChecks } from "react-icons/lu"; // Example icons
 
 export type ActiveSideBarItem = "Library" | "Flashcards";
 
@@ -9,41 +13,63 @@ export interface SideBarProps {
 const SideBar = ({ name }: SideBarProps) => {
   const location = useLocation();
   const currentPath = location.pathname;
-  const isLibraryPage = currentPath === "/library";
-  const isFlashcardsPage = currentPath === "/flashcards";
+  // More robust active check:
+  const isActive = (pathPrefix: string) => currentPath.startsWith(pathPrefix);
+
   const navigate = useNavigate();
 
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Use REACT_APP_API_URL or VITE_API_URL from your .env
+        const apiUrl = process.env.REACT_APP_API_URL || process.env.VITE_API_URL || "http://localhost:8000";
+        const response = await fetch(`${apiUrl}/`); // Make sure it's REACT_APP_... for CRA or VITE_... for Vite
+        if (!response.ok) {
+          throw new Error("Network response was not ok");
+        }
+        const result = await response.json();
+        console.log(result);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const navItems = [
+    { name: "Library", path: "/library", icon: <LuLayoutDashboard className="mr-3 text-xl" /> },
+    { name: "Flashcards", path: "/flashcards", icon: <LuListChecks className="mr-3 text-xl" /> },
+    // Add "/model-page" if it's a distinct top-level navigation item
+    // { name: "AI Model", path: "/model-page", icon: <SomeIcon className="mr-3 text-xl" /> }
+  ];
+
   return (
-    <div className="bg-gray-100 w-1/5 h-full absolute top-0 left-0 border-r-2 border-gray-300">
-      <div className="m-4">
-        <h2 className="text-xl">{name}</h2>
+    <div className="bg-slate-50 w-1/5 h-full absolute top-0 left-0 border-r border-slate-200 flex flex-col">
+      <div className="p-6 border-b border-slate-200"> {/* Increased padding, added bottom border */}
+        <h2 className="text-2xl font-semibold text-slate-700 truncate">{name}</h2>
       </div>
-      <div className="flex px-4 h-16 flex-col mt-14 gap-14 ml-6">
-        <div>
+      <nav className="flex-grow px-4 py-6 space-y-3"> {/* Replaced mt/gap with space-y for consistent spacing */}
+        {navItems.map((item) => (
           <button
-            className={`hover:bg-sky-200 w-1/2 rounded-2xl p-2 ${
-              isLibraryPage ? "bg-sky-200" : ""
-            } cursor-pointer`}
+            key={item.name}
+            className={`w-full flex items-center text-left rounded-lg p-3 transition-colors duration-150 ease-in-out
+                        ${
+                          isActive(item.path)
+                            ? "bg-sky-100 text-sky-700 font-medium"
+                            : "text-slate-600 hover:bg-slate-200 hover:text-slate-800"
+                        }
+                      `}
             onClick={() => {
-              navigate("/library");
+              navigate(item.path);
             }}
           >
-            <h2>Library</h2>
+            {item.icon}
+            <span className="text-sm">{item.name}</span>
           </button>
-        </div>
-        <div>
-          <button
-            className={`hover:bg-sky-200 w-1/2 rounded-2xl p-2 ${
-              isFlashcardsPage ? "bg-sky-200" : ""
-            } cursor-pointer`}
-            onClick={() => {
-              navigate("/flashcards");
-            }}
-          >
-            <h2>Flashcards</h2>
-          </button>
-        </div>
-      </div>
+        ))}
+      </nav>
+      {/* You could add a footer to the sidebar here if needed */}
     </div>
   );
 };
