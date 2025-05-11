@@ -1,203 +1,167 @@
-import asyncio
 import os
 import re
-import threading
-import queue
 import time
+import base64
+import asyncio
 import numpy as np
-from dotenv import load_dotenv
-from google.adk.tools import google_search
+import sounddevice as sd
 from google.cloud import texttospeech
-import sounddevice as sd  # For low-latency audio playback
-
-# ADK imports
+from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.agents import LiveRequestQueue
 from google.adk.runners import Runner
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from google.adk.agents.run_config import RunConfig
 from google.genai.types import Part, Content
 from backend.app.agent.base_agent import root_agent, PDFProcessor
 
-# Load environment variables
-load_dotenv()
-
-# Globals
-APP_NAME = "Real-Time TTS Streaming Example"
+APP_NAME = "Async TTS Streaming"
+SENTENCE_FLUSH_INTERVAL = 0.5  # seconds
 QUESTION = "what is the role of the decoder??"
-GOOGLE_APPLICATION_CREDENTIALS = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
 
 def sanitize_text(text: str) -> str:
-    """Remove markdown formatting and special characters from text"""
-    # Remove markdown bullets, asterisks, and other special formatting
-    text = re.sub(r'^\s*[\*\-]\s*', '', text, flags=re.MULTILINE)  # Remove bullet points
-    text = re.sub(r'\*{2,}', '', text)  # Remove bold markers
-    text = re.sub(r'\#{2,}', '', text)  # Remove headers
-    text = re.sub(r'\[.*?\]\(.*?\)', '', text)  # Remove links
-    text = re.sub(r'<.*?>', '', text)  # Remove HTML tags
-    text = text.replace('*', '').replace('_', '')  # Remove remaining special chars
-    return text.strip()
+    text = re.sub(r'^\s*[\*\-]\s*', '', text, flags=re.MULTILINE)
+    text = re.sub(r'\*{2,}', '', text)
+    text = re.sub(r'\#{2,}', '', text)
+    text = re.sub(r'\[.*?\]\(.*?\)', '', text)
+    text = re.sub(r'<.*?>', '', text)
+    return text.replace('*','').replace('_','').strip()
 
 class TTSStreamer:
     def __init__(self):
         self.client = texttospeech.TextToSpeechClient()
-        self.audio_queue = queue.Queue()
         self.voice = texttospeech.VoiceSelectionParams(
             language_code="en-US",
             name="en-US-Neural2-J"
         )
-        self.audio_config = texttospeech.AudioConfig(
+        self.config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.LINEAR16,
             speaking_rate=1.1
         )
-        self._running = True
-        self.audio_thread = threading.Thread(target=self._audio_worker)
 
-    def start(self):
-        self.audio_thread.start()
+    async def synthesize(self, text: str) -> bytes:
+        """Run synchronous synthesize under the hood—but wrap in a thread to avoid blocking."""
+        loop = asyncio.get_running_loop()
+        input_ = texttospeech.SynthesisInput(text=text)
+        return await loop.run_in_executor(
+            None,
+            lambda: self.client.synthesize_speech(
+                input=input_, voice=self.voice, audio_config=self.config
+            ).audio_content
+        )
 
-    def add_text(self, text: str):
-        if text:
-            synthesis_input = texttospeech.SynthesisInput(text=text)
-            response = self.client.synthesize_speech(
-                input=synthesis_input,
-                voice=self.voice,
-                audio_config=self.audio_config
-            )
-            self.audio_queue.put(response.audio_content)
-
-    def stop(self):
-        self._running = False
-        self.audio_queue.put(None)
-        self.audio_thread.join()
-
-    def _audio_worker(self):
-        while self._running:
-            audio_data = self.audio_queue.get()
-            if audio_data is None:
-                break
-
-            try:
-                # Convert bytes to numpy array
-                audio_array = np.frombuffer(audio_data, dtype=np.int16)
-
-                # Normalize to float32 for sounddevice
-                audio_array = audio_array.astype(np.float32) / 32768.0
-
-                # Play audio with correct parameters
-                sd.play(audio_array, samplerate=24000)
-                sd.wait()
-            except Exception as e:
-                print(f"Audio playback error: {str(e)}")
-
-
-async def _agent_stream(question: str, out_queue: queue.Queue, doc_text: str):
-    """Async agent streaming implementation with document context"""
-    session_service = InMemorySessionService()
-
-    # Create session
-    session = session_service.create_session(
+async def _agent_producer(question: str, doc_text: str, queue_out: asyncio.Queue):
+    """Runs the ADK live agent and pushes cleansed text chunks into queue_out."""
+    session_svc = InMemorySessionService()
+    session = session_svc.create_session(
         app_name=APP_NAME,
         user_id="user1",
         session_id="session1",
         state={"document_text": doc_text}
     )
+    runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_svc)
+    run_cfg = RunConfig(response_modalities=["TEXT"])
+    live_q = LiveRequestQueue()
+    live_events = runner.run_live(session=session, live_request_queue=live_q, run_config=run_cfg)
 
-    runner = Runner(
-        app_name=APP_NAME,
-        agent=root_agent,
-        session_service=session_service,
-    )
+    # send the initial user question
+    live_q.send_content(Content(role="user", parts=[Part.from_text(text=question)]))
 
-    # Rest of the function remains the same
-    run_config = RunConfig(response_modalities=["TEXT"])
-    live_request_queue = LiveRequestQueue()
-
-    live_events = runner.run_live(
-        session=session,
-        live_request_queue=live_request_queue,
-        run_config=run_config,
-    )
-
-    user_content = Content(role="user", parts=[Part.from_text(text=question)])
-    live_request_queue.send_content(content=user_content)
-
-    async for event in live_events:
-        if not event.partial or not event.content or not event.content.parts:
+    # stream partials
+    async for evt in live_events:
+        if not evt.partial or not evt.content or not evt.content.parts:
             continue
-
-        text = event.content.parts[0].text
-        if text:
-            clean_text = sanitize_text(text)
-            out_queue.put(clean_text)
-
-        if event.turn_complete:
+        raw = evt.content.parts[0].text or ""
+        cleaned = sanitize_text(raw)
+        if cleaned:
+            await queue_out.put(cleaned)
+        if evt.turn_complete:
             break
 
-    out_queue.put(None)
+    # sentinel
+    await queue_out.put(None)
 
 
-def agent_thread_fn(question: str, out_queue: queue.Queue, doc_text: str):
-    """Agent thread entry point with document context"""
-    asyncio.run(_agent_stream(question, out_queue, doc_text))
+async def answer_with_pdf(question: str, pdf_path: str):
+    """
+    Async generator yielding dicts:
+      {
+        "text_chunk": "<string>",
+        "audio_chunk": b"<raw pcm bytes>"
+      }
+    """
+    # 1) Extract text from PDF synchronously, since most PDF libs are blocking:
+    proc = PDFProcessor(pdf_path)
+    proc.process_pdf()
+    doc_text = proc.full_text
 
-def printer_tts_thread_fn(in_queue: queue.Queue, tts_streamer: TTSStreamer):
-    """Combined printer and TTS buffering thread"""
-    buffer = []
-    last_flush_time = time.time()
+    # 2) Set up shared queue
+    text_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
+    # 3) Start agent producer
+    producer_task = asyncio.create_task(_agent_producer(question, doc_text, text_queue))
+
+    # 4) TTS streamer instance
+    tts = TTSStreamer()
+
+    buffer: list[str] = []
+    last_flush = time.monotonic()
+
+    # 5) Consume text_queue, batch, synthesize, and yield
     while True:
+        # wait for next text chunk, with a small timeout to flush partial buffers
         try:
-            text = in_queue.get(timeout=0.1)
-            if text is None:
-                if buffer:
-                    tts_streamer.add_text("".join(buffer))
+            chunk = await asyncio.wait_for(text_queue.get(), timeout=SENTENCE_FLUSH_INTERVAL)
+        except asyncio.TimeoutError:
+            chunk = None
+
+
+        now = time.monotonic()
+
+        # if real chunk
+        if chunk is not None:
+            # sentinel → flush and exit
+            if chunk is None:
                 break
+            buffer.append(chunk)
+        # or timeout: maybe flush if we have buffer
+        if buffer and (chunk is None or any(c in (chunk or "") for c in ".!?") or (now - last_flush) >= SENTENCE_FLUSH_INTERVAL):
+            to_say = "".join(buffer)
+            audio_bytes = await tts.synthesize(to_say)
+            yield {
+                "text_chunk": to_say,
+                "audio_chunk": audio_bytes
+            }
+            buffer.clear()
+            last_flush = now
 
-            # Print immediately
-            print(text, end="", flush=True)
-            buffer.append(text)
+        # if producer finished and queue empty, break
+        if producer_task.done() and text_queue.empty():
+            break
 
-            # Flush condition: sentence end or 500ms since last flush
-            if any(c in text for c in ".!?") or (time.time() - last_flush_time > 0.5):
-                tts_streamer.add_text("".join(buffer))
-                buffer = []
-                last_flush_time = time.time()
-
-        except queue.Empty:
-            if buffer and (time.time() - last_flush_time > 0.5):
-                tts_streamer.add_text("".join(buffer))
-                buffer = []
-                last_flush_time = time.time()
-
-    print("\n[STREAM COMPLETE]")
-    tts_streamer.stop()
+    # ensure producer_task has finished
+    await producer_task
 
 
-def answer_with_pdf(question: str, pdf_path: str):
-    # Process PDF
-    processor = PDFProcessor(pdf_path)
-    processor.process_pdf()
+async def _playback_test():
+    pdf_path = "/home/michal/studia/sem6/ds-midi/papers/attention_is_all_you_need.pdf"
+    async for part in answer_with_pdf(QUESTION, pdf_path):
+        text = part["text_chunk"]
+        audio_bytes = part["audio_chunk"]
 
-    # Initialize TTS streamer
-    tts_streamer = TTSStreamer()
-    tts_streamer.start()
+        # print the text chunk
+        print(text, end="", flush=True)
 
-    # Create communication queue
-    agent_queue = queue.Queue()
+        # convert bytes to int16 numpy array
+        audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
 
-    # Create and start threads
-    threads = [
-        threading.Thread(target=agent_thread_fn, args=(question, agent_queue, processor.full_text)),
-        threading.Thread(target=printer_tts_thread_fn, args=(agent_queue, tts_streamer))
-    ]
+        # normalize to float32 in [-1.0, 1.0]
+        audio_float = audio_array.astype(np.float32) / 32768.0
 
-    for t in threads:
-        t.start()
+        # play (non-blocking) and wait until done
+        sd.play(audio_float, samplerate=24000)
+        sd.wait()
 
-    # Wait for all threads to complete
-    for t in threads:
-        t.join()
-
+    print("\n[ALL DONE]")
 
 if __name__ == "__main__":
-    answer_with_pdf(QUESTION, "/home/michal/studia/sem6/ds-midi/papers/attention_is_all_you_need.pdf")
+    asyncio.run(_playback_test())
