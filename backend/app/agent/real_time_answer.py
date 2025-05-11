@@ -14,7 +14,7 @@ from google.genai.types import Part, Content
 from app.agent.base_agent import root_agent, PDFProcessor
 
 APP_NAME = "Async TTS Streaming"
-SENTENCE_FLUSH_INTERVAL = 0.5  # seconds
+SENTENCE_FLUSH_INTERVAL = 0.5 # seconds
 QUESTION = "what is the role of the decoder?? answer in one sentence"
 
 
@@ -68,14 +68,15 @@ async def _agent_producer(question: str, doc_text: str, queue_out: asyncio.Queue
 
     # stream partials
     async for evt in live_events:
+        if evt.turn_complete:
+            break
+
         if not evt.partial or not evt.content or not evt.content.parts:
             continue
         raw = evt.content.parts[0].text or ""
         cleaned = sanitize_text(raw)
         if cleaned:
             await queue_out.put(cleaned)
-        if evt.turn_complete:
-            break
 
     # sentinel
     await queue_out.put(None)
@@ -112,15 +113,13 @@ async def answer_with_pdf(question: str, pdf_path: str):
         try:
             chunk = await asyncio.wait_for(text_queue.get(), timeout=SENTENCE_FLUSH_INTERVAL)
         except asyncio.TimeoutError:
-            chunk = None
-
+            continue
 
         now = time.monotonic()
 
-        # if real chunk
         if chunk is not None:
             buffer.append(chunk)
-        # or timeout: maybe flush if we have buffer
+
         if buffer and (chunk is None or any(c in (chunk or "") for c in ".!?") or (now - last_flush) >= SENTENCE_FLUSH_INTERVAL):
             to_say = "".join(buffer)
             audio_bytes = await tts.synthesize(to_say)
@@ -135,6 +134,9 @@ async def answer_with_pdf(question: str, pdf_path: str):
         if producer_task.done() and text_queue.empty():
             break
 
+        if chunk is None:
+            break
+
     # ensure producer_task has finished
     await producer_task
 
@@ -146,7 +148,7 @@ async def _playback_test():
         audio_bytes = part["audio_chunk"]
 
         # print the text chunk
-        print(text, end="", flush=True)
+        print(text, end=" | ", flush=True)
 
         # convert bytes to int16 numpy array
         audio_array = np.frombuffer(audio_bytes, dtype=np.int16)
