@@ -2,7 +2,7 @@ from app.agent.transcribe_agent import TranscribeAgent
 from fastapi import WebSocket
 from app.agent.real_time_answer import answer_with_pdf
 
-PDF_PATH = "./backend/app/data/attention_is_all_you_need.pdf"
+PDF_PATH = "./app/data/attention_is_all_you_need.pdf"
 
 async def transcribe(transcribe_agent: TranscribeAgent, socket: WebSocket, id: str) -> None:
     while True:

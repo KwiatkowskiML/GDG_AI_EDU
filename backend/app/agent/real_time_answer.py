@@ -140,7 +140,7 @@ async def answer_with_pdf(question: str, pdf_path: str):
 
 
 async def _playback_test():
-    pdf_path = "./backend/app/data/attention_is_all_you_need.pdf"
+    pdf_path = "./app/data/attention_is_all_you_need.pdf"
     async for part in answer_with_pdf(QUESTION, pdf_path):
         text = part["text_chunk"]
         audio_bytes = part["audio_chunk"]

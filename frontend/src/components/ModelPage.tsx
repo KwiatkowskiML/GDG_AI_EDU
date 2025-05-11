@@ -163,7 +163,7 @@ const ModelPage: React.FC = () => {
       return;
     }
     // IMPORTANT: Replace with your actual WebSocket server URL
-    const ws_url = `ws://localhost:8000/stream/test/echo/123`; // Example echo endpoint
+    const ws_url = `ws://localhost:8000/stream/discuss/123`; // Example echo endpoint
     // const ws_url = `ws://${window.location.hostname}:8000/ws/your_actual_path`; // More realistic example
     setWsStatus(`Connecting to ${ws_url}...`);
     addSystemMessage(`Connecting to: ${ws_url.split('/')[2]}...`);
@@ -348,8 +348,8 @@ const ModelPage: React.FC = () => {
           }}
         >
           {isMicRecording ? "Listening..." : 
-           (wsStatus === 'Connected' ? (isPlayingServerAudio ? "Server Speaking..." : "Hold to Speak") : 
-           (wsStatus.startsWith('Connecting') ? "Connecting..." : "Connect WS"))}
+           (wsStatus === 'Connected' ? (isPlayingServerAudio ? "AI Tutor Speaking..." : "Hold to Speak") : 
+           (wsStatus.startsWith('Connecting') ? "Connecting..." : "Connect"))}
         </button>
       </div>
     </div>
