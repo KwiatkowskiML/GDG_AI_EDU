@@ -23,7 +23,7 @@ def get_transcribe_agent():
         raise
 
 @router.websocket("/discuss/{session_id}")
-async def ws_stream_endpoint(
+async def ws_discucss(
         websocket: WebSocket,
         session_id: str,
         transcribe_agent: TranscribeAgent = Depends(get_transcribe_agent)
