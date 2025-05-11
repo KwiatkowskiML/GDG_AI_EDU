@@ -15,7 +15,7 @@ from backend.app.agent.base_agent import root_agent, PDFProcessor
 
 APP_NAME = "Async TTS Streaming"
 SENTENCE_FLUSH_INTERVAL = 0.5  # seconds
-QUESTION = "what is the role of the decoder??"
+QUESTION = "what is the role of the decoder?? answer in one sentence"
 
 
 def sanitize_text(text: str) -> str:
@@ -116,12 +116,12 @@ async def answer_with_pdf(question: str, pdf_path: str):
 
 
         now = time.monotonic()
+        #
+        # if chunk is None:
+        #     break
 
         # if real chunk
         if chunk is not None:
-            # sentinel → flush and exit
-            if chunk is None:
-                break
             buffer.append(chunk)
         # or timeout: maybe flush if we have buffer
         if buffer and (chunk is None or any(c in (chunk or "") for c in ".!?") or (now - last_flush) >= SENTENCE_FLUSH_INTERVAL):
@@ -158,8 +158,8 @@ async def _playback_test():
         audio_float = audio_array.astype(np.float32) / 32768.0
 
         # play (non-blocking) and wait until done
-        sd.play(audio_float, samplerate=24000)
         sd.wait()
+        sd.play(audio_float, samplerate=24000)
 
     print("\n[ALL DONE]")
 
