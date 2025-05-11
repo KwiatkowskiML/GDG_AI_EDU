@@ -59,5 +59,3 @@ This project is an interactive application featuring a 3D avatar that responds t
     *   The frontend receives the audio stream.
     *   The audio is played back.
     *   Simultaneously, the 3D avatar's mouth is animated (e.g., based on simple heuristics or more advanced viseme data if provided by the backend TTS) using Three.js blendshapes to simulate speaking.
-
-## Project Structure (High-Level)
