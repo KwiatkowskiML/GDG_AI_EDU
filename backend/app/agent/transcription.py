@@ -2,9 +2,24 @@ from app.agent.transcribe_agent import TranscribeAgent
 from fastapi import WebSocket
 from app.agent.real_time_answer import answer_with_pdf
 
+from app.agent.real_time_answer import TTSStreamer
+
 PDF_PATH = "./app/data/attention_is_all_you_need.pdf"
 
 async def transcribe(transcribe_agent: TranscribeAgent, socket: WebSocket, id: str) -> None:
+    try:
+        tts_streamer = TTSStreamer()
+        greeting_text = "Hello, how can I help you today?"
+
+        print(f"Client #{id}: Synthesizing greeting: \"{greeting_text}\"")
+        greeting_audio_bytes = await tts_streamer.synthesize(greeting_text)
+
+        await socket.send_bytes(greeting_audio_bytes)
+        print(f"Client #{id}: Sent greeting audio.")
+
+    except Exception as e:
+        print(f"Client #{id}: Error during initial greeting: {e}")
+
     while True:
         raw_pcm_audio_chunk = await socket.receive_bytes()
         if not raw_pcm_audio_chunk:
