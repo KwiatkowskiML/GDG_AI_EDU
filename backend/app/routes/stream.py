@@ -37,14 +37,7 @@ async def ws_stream_endpoint(
     print(f"Client #{session_id}: EXPECTING RAW PCM (16-bit, {SAMPLE_RATE}Hz, mono) from client.")
 
     try:
-        vad_handler = VoiceActivityDetector(session_id)
-    except Exception as e:
-        print(f"Client #{session_id}: Critical error initializing VAD: {e}")
-        await websocket.close(code=1011, reason=f"Server VAD initialization error: {e}")
-        return
-
-    try:
-        await transcribe(vad_handler, transcribe_agent, websocket, session_id)
+        await transcribe(transcribe_agent, websocket, session_id)
     except WebSocketDisconnect:
         print(f"Client #{session_id} disconnected.")
     except Exception as e:
